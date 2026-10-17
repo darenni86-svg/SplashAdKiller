@@ -2,13 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- 测试版：只注入这两个 App，用来确认 Bundle 过滤是否能让腾讯视频生效。 -->
+	<!-- 所有包含 UIApplication 的 App 进程都注入；系统进程不会加载。 -->
 	<key>Filter</key>
 	<dict>
-		<key>Bundles</key>
+		<key>Classes</key>
 		<array>
-			<string>com.tencent.live4iphone</string>
-			<string>com.kugou.kugou1002</string>
+			<string>UIApplication</string>
 		</array>
 	</dict>
 </dict>

@@ -152,8 +152,8 @@ static NSArray<NSString *> *SADStringArrayValue(NSDictionary *preferences, NSStr
     config.verboseLog = NO;
     config.blockShake = YES;
     config.blockAdJump = YES;
-    config.logToFile = YES;
-    config.copyDiagnostics = YES;
+    config.logToFile = NO;
+    config.copyDiagnostics = NO;
     config.diagnosticBundles = @[@"com.tencent.live4iphone"];
     config.launchWindow = 12.0;
     config.extraKeywords = @[];
@@ -612,8 +612,6 @@ static void SADPauseVideoLayer(UIView *view) {
                         [core stopMonitoring];
                         SADFlushDiag();
                     }];
-
-    [[SADCore shared] showInjectionBannerIfNeeded];
 }
 
 #pragma mark 监听
@@ -688,6 +686,9 @@ static void SADPauseVideoLayer(UIView *view) {
 }
 
 - (void)deliverDiagnosticsIfNeeded {
+    if (!self.config.copyDiagnostics) {
+        return;
+    }
     NSString *bundleIdentifier = [NSBundle mainBundle].bundleIdentifier;
     if (!SADIsDiagnosticBundle(bundleIdentifier, self.config.diagnosticBundles)) {
         return;
