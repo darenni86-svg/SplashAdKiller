@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>开屏广告清理 · Sileo 源</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+         max-width: 720px; margin: 48px auto; padding: 0 20px; line-height: 1.7;
+         color: #1c1c1e; background: #fafafa; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .sub { color: #666; margin-top: 0; }
+  code, pre { background: #f0f0f2; border-radius: 8px; padding: 2px 6px; }
+  pre { padding: 14px; overflow-x: auto; }
+  .card { background: #fff; border-radius: 14px; padding: 20px 24px; margin: 20px 0;
+          box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  a { color: #0a7aff; }
+</style>
+</head>
+<body>
+  <h1>开屏广告清理</h1>
+  <p class="sub">Sileo 源 · SplashAdKiller</p>
+
+  <div class="card">
+    <h2>添加源</h2>
+    <p>在 Sileo 里打开 <b>软件源 → 编辑 → 添加</b>，输入：</p>
+    <pre>https://darenni86-svg.github.io/SplashAdKiller/</pre>
+    <p>刷新后搜索「开屏广告清理」安装即可。</p>
+  </div>
+
+  <div class="card">
+    <h2>直接下载 deb</h2>
+    <ul>
+      <li><a href="debs/com.dsh.splashadkiller_1.0.0_iphoneos-arm64.deb">rootless（Dopamine / palera1n rootless）</a></li>
+      <li><a href="debs/com.dsh.splashadkiller_1.0.0_iphoneos-arm.deb">rootful（unc0ver / Taurine / checkra1n）</a></li>
+    </ul>
+    <p>分不清就看手机里有没有 <code>/var/jb</code>：有就是 rootless。</p>
+  </div>
+
+  <div class="card">
+    <h2>安装后</h2>
+    <p>Respring，然后把目标 App 从后台彻底划掉再打开。</p>
+    <p>默认全开；配置文件在 <code>/var/mobile/Library/Preferences/com.dsh.splashadkiller.plist</code>。</p>
+  </div>
+</body>
+</html>
