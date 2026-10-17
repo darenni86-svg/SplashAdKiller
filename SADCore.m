@@ -9,6 +9,7 @@
 
 static NSString *const SADPreferencesDomain = @"com.dsh.splashadkiller";
 static CFTimeInterval SADProcessStartTime = 0;
+static UIWindow *SADBannerWindow = nil;
 
 #pragma mark - 日志
 
@@ -323,14 +324,23 @@ static BOOL SADNameMatches(NSString *className, SADConfig *config) {
     return matched;
 }
 
-static BOOL SADNameIsExcluded(NSString *className) {
-    NSString *normalized = SADNormalized(className);
+static BOOL SADNameIsExcluded(NSString *className) {    NSString *normalized = SADNormalized(className);
     for (NSString *keyword in SADExcludedKeywords()) {
         if ([normalized containsString:keyword]) {
             return YES;
         }
     }
     return NO;
+}
+
+static BOOL SADIsDiagnosticBundle(NSString *bundleIdentifier, NSArray<NSString *> *list) {
+    if (bundleIdentifier.length == 0) {
+        return NO;
+    }
+    if ([bundleIdentifier hasPrefix:@"com.tencent."]) {
+        return YES;
+    }
+    return [list containsObject:bundleIdentifier];
 }
 
 #pragma mark - 文案与视图
@@ -510,6 +520,7 @@ static void SADPauseVideoLayer(UIView *view) {
 
 - (void)stopMonitoring;
 - (void)deliverDiagnosticsIfNeeded;
+- (void)showInjectionBannerIfNeeded;
 - (UIViewController *)topViewController;
 
 @end
@@ -601,6 +612,8 @@ static void SADPauseVideoLayer(UIView *view) {
                         [core stopMonitoring];
                         SADFlushDiag();
                     }];
+
+    [[SADCore shared] showInjectionBannerIfNeeded];
 }
 
 #pragma mark 监听
@@ -675,21 +688,16 @@ static void SADPauseVideoLayer(UIView *view) {
 }
 
 - (void)deliverDiagnosticsIfNeeded {
-    if (!self.config.copyDiagnostics) {
-        return;
-    }
     NSString *bundleIdentifier = [NSBundle mainBundle].bundleIdentifier;
-    if (![self.config.diagnosticBundles containsObject:bundleIdentifier]) {
+    if (!SADIsDiagnosticBundle(bundleIdentifier, self.config.diagnosticBundles)) {
         return;
     }
 
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:SADPreferencesDomain];
     NSString *log = [defaults stringForKey:@"DiagnosticLog"];
-    if (log.length == 0) {
-        return;
+    if (log.length > 0) {
+        [UIPasteboard generalPasteboard].string = log;
     }
-
-    [UIPasteboard generalPasteboard].string = log;
 
     if ([UIApplication sharedApplication].applicationState != UIApplicationStateActive) {
         return;
@@ -698,17 +706,59 @@ static void SADPauseVideoLayer(UIView *view) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         UIViewController *top = [self topViewController];
-        if (top == nil || top.presentedViewController != nil) {
+        if (top == nil) {
             return;
         }
+        NSString *message = log.length > 0
+            ? [NSString stringWithFormat:@"日志已复制到剪贴板（%lu 字），直接粘贴发送就行。",
+                                         (unsigned long)log.length]
+            : @"没有生成日志：要么插件没注入，要么日志写入失败。请把这条提示截图发我。";
         UIAlertController *alert =
-            [UIAlertController alertControllerWithTitle:@"SAD 诊断已复制"
-                                                message:@"日志已复制到剪贴板，直接粘贴发送即可。"
+            [UIAlertController alertControllerWithTitle:
+                                    [NSString stringWithFormat:@"SAD 诊断 · %@", bundleIdentifier]
+                                                message:message
                                          preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"好"
                                                   style:UIAlertActionStyleDefault
                                                 handler:nil]];
         [top presentViewController:alert animated:YES completion:nil];
+    });
+}
+
+- (void)showInjectionBannerIfNeeded {
+    NSString *bundleIdentifier = [NSBundle mainBundle].bundleIdentifier;
+    if (!SADIsDiagnosticBundle(bundleIdentifier, self.config.diagnosticBundles)) {
+        return;
+    }
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        UIWindow *window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        window.windowLevel = UIWindowLevelAlert + 1;
+        window.backgroundColor = [UIColor clearColor];
+        window.rootViewController = [[UIViewController alloc] init];
+        window.rootViewController.view.backgroundColor = [UIColor clearColor];
+
+        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(16, 54,
+                                                                   window.bounds.size.width - 32, 36)];
+        label.backgroundColor = [UIColor colorWithRed:0.85 green:0.10 blue:0.10 alpha:0.94];
+        label.textColor = [UIColor whiteColor];
+        label.font = [UIFont boldSystemFontOfSize:12];
+        label.textAlignment = NSTextAlignmentCenter;
+        label.numberOfLines = 2;
+        label.layer.cornerRadius = 8;
+        label.clipsToBounds = YES;
+        label.text = [NSString stringWithFormat:@"SAD 已注入 %@", bundleIdentifier];
+
+        [window.rootViewController.view addSubview:label];
+        window.hidden = NO;
+        SADBannerWindow = window;
+
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            window.hidden = YES;
+            SADBannerWindow = nil;
+        });
     });
 }
 
