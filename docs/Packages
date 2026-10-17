@@ -1,28 +1,28 @@
 Package: com.dsh.splashadkiller
 Name: 开屏广告清理
-Version: 1.2.0
+Version: 1.2.1
 Architecture: iphoneos-arm
 Description: 通用开屏广告跳过插件：自动点「跳过」、拦截开屏广告控制器、遮挡广告画面。
 Maintainer: dsh
 Author: dsh
 Section: Tweaks
 Depends: mobilesubstrate (>= 0.9.5000) | ellekit, firmware (>= 14.0)
-Filename: debs/com.dsh.splashadkiller_1.2.0_iphoneos-arm.deb
-Size: 24888
-SHA256: 817afc126cc973f3f2498dbd559a27d7463418f5ac3bda13ce05714969b44f7f
+Filename: debs/com.dsh.splashadkiller_1.2.1_iphoneos-arm.deb
+Size: 26606
+SHA256: 886cc734b479f17f6ef0d2faae2b8e9ce5b814d633a1a1d1d81bbeca37130cd3
 Installed-Size: 236
 
 Package: com.dsh.splashadkiller
 Name: 开屏广告清理
-Version: 1.2.0
+Version: 1.2.1
 Architecture: iphoneos-arm64
 Description: 通用开屏广告跳过插件：自动点「跳过」、拦截开屏广告控制器、遮挡广告画面。
 Maintainer: dsh
 Author: dsh
 Section: Tweaks
 Depends: mobilesubstrate (>= 0.9.5000) | ellekit, firmware (>= 14.0)
-Filename: debs/com.dsh.splashadkiller_1.2.0_iphoneos-arm64.deb
-Size: 25064
-SHA256: c6560718aef92a6040dded9c75d662cc2ab6aa91a2754d838d9d902c71f9d4b7
+Filename: debs/com.dsh.splashadkiller_1.2.1_iphoneos-arm64.deb
+Size: 26710
+SHA256: 06aab98a4e56df6d1c4477de9449ddec61b7871c8e460ff509dcff3a411f3356
 Installed-Size: 236
 
