@@ -36,7 +36,9 @@ jobs:
         run: |
           echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
           git clone --recursive --depth 1 https://github.com/theos/theos.git "$RUNNER_TEMP/theos"
-          if ! git clone --depth 1 https://github.com/theos/sdks.git "$RUNNER_TEMP/theos/sdks" 2>/dev/null; then
+          rm -rf "$RUNNER_TEMP/theos/sdks"
+          if ! git clone --depth 1 https://github.com/theos/sdks.git "$RUNNER_TEMP/theos/sdks"; then
+            rm -rf "$RUNNER_TEMP/theos/sdks"
             git clone --depth 1 https://github.com/xybp888/iOS-SDKs.git "$RUNNER_TEMP/theos/sdks"
           fi
           ls "$RUNNER_TEMP/theos/sdks" | head -n 10
