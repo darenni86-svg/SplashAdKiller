@@ -152,6 +152,8 @@ static NSArray<NSString *> *SADStringArrayValue(NSDictionary *preferences, NSStr
     config.blockShake = YES;
     config.blockAdJump = YES;
     config.logToFile = YES;
+    config.copyDiagnostics = YES;
+    config.diagnosticBundles = @[@"com.tencent.live4iphone"];
     config.launchWindow = 12.0;
     config.extraKeywords = @[];
     config.disabledBundles = @[];
@@ -191,6 +193,11 @@ static NSArray<NSString *> *SADStringArrayValue(NSDictionary *preferences, NSStr
     config.blockShake = SADBoolValue(preferences, @"BlockShake", config.blockShake);
     config.blockAdJump = SADBoolValue(preferences, @"BlockAdJump", config.blockAdJump);
     config.logToFile = SADBoolValue(preferences, @"LogToFile", config.logToFile);
+    config.copyDiagnostics = SADBoolValue(preferences, @"CopyDiagnostics", config.copyDiagnostics);
+    config.diagnosticBundles = SADStringArrayValue(preferences, @"DiagnosticBundles");
+    if (config.diagnosticBundles.count == 0) {
+        config.diagnosticBundles = @[@"com.tencent.live4iphone"];
+    }
     config.launchWindow = SADDoubleValue(preferences, @"LaunchWindow", config.launchWindow);
     config.extraKeywords = SADStringArrayValue(preferences, @"ExtraKeywords");
     config.disabledBundles = SADStringArrayValue(preferences, @"DisabledBundles");
@@ -239,7 +246,8 @@ static NSArray<NSString *> *SADBaseKeywords(void) {
             @"busplash", @"gdtsplash", @"kssplash", @"sigsplash",
             @"mtgsplash", @"hwsplash", @"misplash", @"panglesplash",
             // 腾讯系
-            @"tadsplash", @"tadlaunch", @"qnlaunch", @"tvklaunch", @"qqlivead",
+            @"tadsplash", @"tadlaunch", @"tadvideo", @"gdtlaunch",
+            @"qnlaunch", @"tvklaunch", @"qqlivead", @"qntvad", @"tencentad",
             // 酷狗系
             @"kugouad", @"kglaunch",
         ];
@@ -375,6 +383,10 @@ static NSString *SADTextFromControl(UIControl *control) {
         if (button.titleLabel.text.length > 0) {
             [buffer appendString:button.titleLabel.text];
         }
+        NSAttributedString *attributed = [button attributedTitleForState:UIControlStateNormal];
+        if (attributed.string.length > 0) {
+            [buffer appendString:attributed.string];
+        }
     }
 
     if (control.accessibilityLabel.length > 0) {
@@ -488,6 +500,7 @@ static void SADPauseVideoLayer(UIView *view) {
 @property (nonatomic, strong, nullable) NSTimer *timer;
 @property (nonatomic, assign) CFTimeInterval deadline;
 @property (nonatomic, assign) CFTimeInterval startedAt;
+@property (nonatomic, assign) CFTimeInterval lastScan;
 @property (nonatomic, assign) CFTimeInterval nextSnapshot;
 @property (nonatomic, assign) NSInteger clickCount;
 @property (nonatomic, assign) NSInteger tickSkipCandidates;
@@ -496,6 +509,8 @@ static void SADPauseVideoLayer(UIView *view) {
 @property (nonatomic, strong) NSHashTable<UIView *> *maskedViews;
 
 - (void)stopMonitoring;
+- (void)deliverDiagnosticsIfNeeded;
+- (UIViewController *)topViewController;
 
 @end
 
@@ -613,15 +628,16 @@ static void SADPauseVideoLayer(UIView *view) {
     self.tickSkipCandidates = 0;
     self.adDetected = NO;
     self.nextSnapshot = 0.8;
+    self.lastScan = 0;
     [self.clickedControls removeAllObjects];
     [self.maskedViews removeAllObjects];
 
-    self.timer = [NSTimer timerWithTimeInterval:0.2
+    self.timer = [NSTimer timerWithTimeInterval:0.1
                                          target:self
                                        selector:@selector(handleTick)
                                        userInfo:nil
                                         repeats:YES];
-    self.timer.tolerance = 0.05;
+    self.timer.tolerance = 0.02;
     [[NSRunLoop mainRunLoop] addTimer:self.timer forMode:NSRunLoopCommonModes];
 
     SADDiag(@"monitor start (%@, %.0fs)", reason, window);
@@ -635,6 +651,65 @@ static void SADPauseVideoLayer(UIView *view) {
     self.timer = nil;
     SADDiag(@"monitor stop clicks=%ld ad=%d", (long)self.clickCount, self.adDetected);
     SADFlushDiag();
+    [self deliverDiagnosticsIfNeeded];
+}
+
+- (UIViewController *)topViewController {
+    UIWindow *keyWindow = nil;
+    for (UIWindow *window in [UIApplication sharedApplication].windows) {
+        if (window.isKeyWindow) {
+            keyWindow = window;
+            break;
+        }
+    }
+    if (keyWindow == nil) {
+        keyWindow = [UIApplication sharedApplication].windows.firstObject;
+    }
+    UIViewController *controller = keyWindow.rootViewController;
+    NSInteger depth = 0;
+    while (controller.presentedViewController != nil && depth < 6) {
+        controller = controller.presentedViewController;
+        depth++;
+    }
+    return controller;
+}
+
+- (void)deliverDiagnosticsIfNeeded {
+    if (!self.config.copyDiagnostics) {
+        return;
+    }
+    NSString *bundleIdentifier = [NSBundle mainBundle].bundleIdentifier;
+    if (![self.config.diagnosticBundles containsObject:bundleIdentifier]) {
+        return;
+    }
+
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:SADPreferencesDomain];
+    NSString *log = [defaults stringForKey:@"DiagnosticLog"];
+    if (log.length == 0) {
+        return;
+    }
+
+    [UIPasteboard generalPasteboard].string = log;
+
+    if ([UIApplication sharedApplication].applicationState != UIApplicationStateActive) {
+        return;
+    }
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        UIViewController *top = [self topViewController];
+        if (top == nil || top.presentedViewController != nil) {
+            return;
+        }
+        UIAlertController *alert =
+            [UIAlertController alertControllerWithTitle:@"SAD 诊断已复制"
+                                                message:@"日志已复制到剪贴板，直接粘贴发送即可。"
+                                         preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"好"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:nil]];
+        [top presentViewController:alert animated:YES completion:nil];
+    });
 }
 
 - (void)handleTick {
@@ -642,10 +717,25 @@ static void SADPauseVideoLayer(UIView *view) {
         [self stopMonitoring];
         return;
     }
-    if (CACurrentMediaTime() > self.deadline) {
+
+    CFTimeInterval now = CACurrentMediaTime();
+    if (now > self.deadline) {
         [self stopMonitoring];
         return;
     }
+
+    CFTimeInterval elapsed = now - self.startedAt;
+    // 8 秒内什么都没发现，就没必要继续扫了，省得拖慢 App。
+    if (elapsed > 8.0 && !self.adDetected && self.clickCount == 0) {
+        [self stopMonitoring];
+        return;
+    }
+
+    CFTimeInterval interval = elapsed < 2.5 ? 0.15 : 0.45;
+    if (now - self.lastScan < interval) {
+        return;
+    }
+    self.lastScan = now;
 
     self.tickSkipCandidates = 0;
     @try {
@@ -654,7 +744,6 @@ static void SADPauseVideoLayer(UIView *view) {
         SADDiag(@"scan exception %@", exception.reason);
     }
 
-    CFTimeInterval elapsed = CACurrentMediaTime() - self.startedAt;
     if (elapsed >= self.nextSnapshot) {
         SADDiag(@"t=%.1f top=%@ windows=%lu skip=%ld ad=%d",
                 elapsed,
@@ -675,7 +764,7 @@ static void SADPauseVideoLayer(UIView *view) {
     }
 
     CFTimeInterval elapsed = CACurrentMediaTime() - self.startedAt;
-    NSInteger budget = elapsed < 4.0 ? 2200 : 900;
+    NSInteger budget = elapsed < 2.5 ? 1400 : 500;
 
     for (UIWindow *window in application.windows) {
         if (budget <= 0) {
@@ -773,10 +862,23 @@ static void SADPauseVideoLayer(UIView *view) {
         return;
     }
 
-    NSString *text = SADTextFromControl(control);
-    if (!SADIsSkipText(text)) {
-        return;
+    // 先用最便宜的方式判断，避免给每个控件都拼字符串。
+    NSString *quick = control.accessibilityLabel;
+    if (!SADIsSkipText(quick) && [control isKindOfClass:[UIButton class]]) {
+        quick = [((UIButton *)control) titleForState:UIControlStateNormal];
     }
+
+    if (!SADIsSkipText(quick)) {
+        if (!SADViewIsInsideAdContainer(control, self.config)) {
+            return;
+        }
+        quick = SADTextFromControl(control);
+        if (!SADIsSkipText(quick)) {
+            return;
+        }
+    }
+
+    NSString *text = quick;
 
     self.tickSkipCandidates += 1;
 
@@ -826,7 +928,10 @@ static void SADPauseVideoLayer(UIView *view) {
         }
     }
 
-    if (view.accessibilityLabel.length == 0 || view.isAccessibilityElement == NO) {
+    if (view.isAccessibilityElement == NO) {
+        return;
+    }
+    if (view.accessibilityLabel.length == 0) {
         return;
     }
     if (!SADIsSkipText(view.accessibilityLabel)) {

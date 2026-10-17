@@ -22,6 +22,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL blockAdJump;
 /// 把诊断信息写进 /var/mobile/Library/Preferences/com.dsh.splashadkiller.plist 的 DiagnosticLog。
 @property (nonatomic, assign) BOOL logToFile;
+/// 对 diagnosticBundles 里的 App：启动结束后把诊断日志复制到剪贴板并提示。
+@property (nonatomic, assign) BOOL copyDiagnostics;
+@property (nonatomic, copy) NSArray<NSString *> *diagnosticBundles;
 @property (nonatomic, assign) NSTimeInterval launchWindow;
 @property (nonatomic, copy) NSArray<NSString *> *extraKeywords;
 @property (nonatomic, copy) NSArray<NSString *> *disabledBundles;
