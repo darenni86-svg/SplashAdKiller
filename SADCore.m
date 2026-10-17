@@ -733,7 +733,19 @@ static void SADPauseVideoLayer(UIView *view) {
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-        UIWindow *window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        UIWindow *window = nil;
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]] &&
+                scene.activationState == UISceneActivationStateForegroundActive) {
+                window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+                break;
+            }
+        }
+        if (window == nil) {
+            window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        } else {
+            window.frame = [UIScreen mainScreen].bounds;
+        }
         window.windowLevel = UIWindowLevelAlert + 1;
         window.backgroundColor = [UIColor clearColor];
         window.rootViewController = [[UIViewController alloc] init];
