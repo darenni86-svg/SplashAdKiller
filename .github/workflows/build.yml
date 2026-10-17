@@ -1,0 +1,66 @@
+name: Build tweak
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.scheme }})
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: rootful
+            arch: iphoneos-arm
+          - scheme: rootless
+            arch: iphoneos-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: brew install ldid xz dpkg
+
+      - name: Set up Theos
+        run: |
+          echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
+          git clone --recursive --depth 1 https://github.com/theos/theos.git "$RUNNER_TEMP/theos"
+          if ! git clone --depth 1 https://github.com/theos/sdks.git "$RUNNER_TEMP/theos/sdks" 2>/dev/null; then
+            git clone --depth 1 https://github.com/xybp888/iOS-SDKs.git "$RUNNER_TEMP/theos/sdks"
+          fi
+          ls "$RUNNER_TEMP/theos/sdks" | head -n 10
+
+      - name: Configure scheme
+        run: |
+          if [ "${{ matrix.scheme }}" = "rootless" ]; then
+            echo "THEOS_PACKAGE_SCHEME=rootless" >> "$GITHUB_ENV"
+          fi
+          sed -i '' "s/^Architecture:.*/Architecture: ${{ matrix.arch }}/" control
+          cat control
+
+      - name: Build package
+        run: make package
+
+      - name: Collect deb
+        run: |
+          mkdir -p output
+          find packages -name '*.deb' -exec cp {} output/ \;
+          ls -lh output
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: SplashAdKiller-${{ matrix.scheme }}
+          path: output/*.deb
+          if-no-files-found: error
