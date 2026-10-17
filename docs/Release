@@ -1,7 +1,7 @@
 Origin: SplashAdKiller
 Label: 开屏广告清理
 Suite: stable
-Version: 1.2.2
+Version: 1.3.0
 Codename: ios
 Architectures: iphoneos-arm iphoneos-arm64
 Components: main
