@@ -19,20 +19,20 @@
 </head>
 <body>
   <h1>开屏广告清理</h1>
-  <p class="sub">Sileo 源 · SplashAdKiller</p>
+  <p class="sub">Sileo 源 · SplashAdKiller 1.1.0</p>
 
   <div class="card">
     <h2>添加源</h2>
     <p>在 Sileo 里打开 <b>软件源 → 编辑 → 添加</b>，输入：</p>
-    <pre>https://darenni86-svg.github.io/SplashAdKiller/</pre>
+    <pre>https://fastly.jsdelivr.net/gh/darenni86-svg/SplashAdKiller@main/docs/</pre>
     <p>刷新后搜索「开屏广告清理」安装即可。</p>
   </div>
 
   <div class="card">
     <h2>直接下载 deb</h2>
     <ul>
-      <li><a href="debs/com.dsh.splashadkiller_1.0.0_iphoneos-arm64.deb">rootless（Dopamine / palera1n rootless）</a></li>
-      <li><a href="debs/com.dsh.splashadkiller_1.0.0_iphoneos-arm.deb">rootful（unc0ver / Taurine / checkra1n）</a></li>
+      <li><a href="debs/com.dsh.splashadkiller_1.1.0_iphoneos-arm64.deb">iphoneos-arm64</a></li>
+      <li><a href="debs/com.dsh.splashadkiller_1.1.0_iphoneos-arm.deb">iphoneos-arm</a></li>
     </ul>
     <p>分不清就看手机里有没有 <code>/var/jb</code>：有就是 rootless。</p>
   </div>
@@ -40,7 +40,7 @@
   <div class="card">
     <h2>安装后</h2>
     <p>Respring，然后把目标 App 从后台彻底划掉再打开。</p>
-    <p>默认全开；配置文件在 <code>/var/mobile/Library/Preferences/com.dsh.splashadkiller.plist</code>。</p>
+    <p>诊断日志：<code>/var/mobile/Library/Preferences/com.dsh.splashadkiller.plist</code> 里的 <code>DiagnosticLog</code>。</p>
   </div>
 </body>
 </html>
