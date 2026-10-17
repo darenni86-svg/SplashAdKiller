@@ -1,6 +1,6 @@
 Package: com.dsh.splashadkiller
 Name: 开屏广告清理
-Version: 1.2.1
+Version: 1.2.2
 Architecture: iphoneos-arm
 Description: 通用开屏广告跳过插件：自动点「跳过」、拦截开屏广告控制器、遮挡广告画面。适用于所有第三方 App，支持 rootful 与 rootless 越狱。
 Maintainer: dsh
