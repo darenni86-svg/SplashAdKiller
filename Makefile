@@ -9,7 +9,7 @@ TWEAK_NAME = SplashAdKiller
 
 SplashAdKiller_FILES = Tweak.xm SADCore.m
 SplashAdKiller_CFLAGS = -fobjc-arc -Wall -Wno-unused-function -Wno-unused-parameter
-SplashAdKiller_FRAMEWORKS = UIKit Foundation QuartzCore
+SplashAdKiller_FRAMEWORKS = UIKit Foundation QuartzCore CoreMotion StoreKit
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 

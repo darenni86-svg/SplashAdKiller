@@ -8,6 +8,7 @@
 #import <os/log.h>
 
 static NSString *const SADPreferencesDomain = @"com.dsh.splashadkiller";
+static CFTimeInterval SADProcessStartTime = 0;
 
 #pragma mark - 日志
 
@@ -31,6 +32,56 @@ static void SADLog(NSString *format, ...) {
     NSString *message = [[NSString alloc] initWithFormat:format arguments:arguments];
     va_end(arguments);
     os_log(SADLogHandle(), "[SAD] %{public}@", message);
+}
+
+static NSMutableString *SADDiagBuffer(void) {
+    static NSMutableString *buffer;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        buffer = [NSMutableString string];
+    });
+    return buffer;
+}
+
+static void SADClearDiag(void) {
+    NSMutableString *buffer = SADDiagBuffer();
+    @synchronized (buffer) {
+        [buffer setString:@""];
+    }
+}
+
+static void SADDiag(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+
+static void SADDiag(NSString *format, ...) {
+    if (![SADCore shared].config.logToFile) {
+        return;
+    }
+    if (SADProcessStartTime <= 0) {
+        SADProcessStartTime = CACurrentMediaTime();
+    }
+    va_list arguments;
+    va_start(arguments, format);
+    NSString *line = [[NSString alloc] initWithFormat:format arguments:arguments];
+    va_end(arguments);
+
+    NSMutableString *buffer = SADDiagBuffer();
+    @synchronized (buffer) {
+        [buffer appendFormat:@"%7.2f  %@\n", CACurrentMediaTime() - SADProcessStartTime, line];
+    }
+}
+
+static void SADFlushDiag(void) {
+    NSMutableString *buffer = SADDiagBuffer();
+    NSString *text = nil;
+    @synchronized (buffer) {
+        text = [buffer copy];
+    }
+    if (text.length == 0) {
+        return;
+    }
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:SADPreferencesDomain];
+    [defaults setObject:text forKey:@"DiagnosticLog"];
+    [defaults synchronize];
 }
 
 #pragma mark - 配置
@@ -98,6 +149,9 @@ static NSArray<NSString *> *SADStringArrayValue(NSDictionary *preferences, NSStr
     config.maskAdContent = YES;
     config.hotStart = YES;
     config.verboseLog = NO;
+    config.blockShake = YES;
+    config.blockAdJump = YES;
+    config.logToFile = YES;
     config.launchWindow = 12.0;
     config.extraKeywords = @[];
     config.disabledBundles = @[];
@@ -116,9 +170,8 @@ static NSArray<NSString *> *SADStringArrayValue(NSDictionary *preferences, NSStr
     }
 
     if (preferences.count == 0) {
-        // cfprefsd 偶尔会缓存旧值，直接读文件做一次兜底。
-        NSString *path = [@"/var/mobile/Library/Preferences" stringByAppendingPathComponent:
-                                                                      [SADPreferencesDomain stringByAppendingPathExtension:@"plist"]];
+        NSString *path = [@"/var/mobile/Library/Preferences"
+            stringByAppendingPathComponent:[SADPreferencesDomain stringByAppendingPathExtension:@"plist"]];
         NSDictionary *filePreferences = [NSDictionary dictionaryWithContentsOfFile:path];
         if ([filePreferences isKindOfClass:[NSDictionary class]]) {
             preferences = filePreferences;
@@ -135,6 +188,9 @@ static NSArray<NSString *> *SADStringArrayValue(NSDictionary *preferences, NSStr
     config.maskAdContent = SADBoolValue(preferences, @"MaskAdContent", config.maskAdContent);
     config.hotStart = SADBoolValue(preferences, @"HotStart", config.hotStart);
     config.verboseLog = SADBoolValue(preferences, @"VerboseLog", config.verboseLog);
+    config.blockShake = SADBoolValue(preferences, @"BlockShake", config.blockShake);
+    config.blockAdJump = SADBoolValue(preferences, @"BlockAdJump", config.blockAdJump);
+    config.logToFile = SADBoolValue(preferences, @"LogToFile", config.logToFile);
     config.launchWindow = SADDoubleValue(preferences, @"LaunchWindow", config.launchWindow);
     config.extraKeywords = SADStringArrayValue(preferences, @"ExtraKeywords");
     config.disabledBundles = SADStringArrayValue(preferences, @"DisabledBundles");
@@ -154,7 +210,6 @@ static NSArray<NSString *> *SADStringArrayValue(NSDictionary *preferences, NSStr
 
 #pragma mark - 类名匹配
 
-/// 去掉大小写、下划线、横线、空格，只保留字母数字，方便做包含匹配。
 static NSString *SADNormalized(NSString *text) {
     if (text.length == 0) {
         return @"";
@@ -177,14 +232,16 @@ static NSArray<NSString *> *SADBaseKeywords(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         keywords = @[
-            // 通用拼接
             @"splashad", @"adsplash", @"splashadvert",
             @"launchad", @"adlaunch", @"launchadvert",
             @"openscreenad", @"openingscreenad", @"openingad",
             @"bootad", @"startupad", @"welcomead",
-            // 国内常见广告 SDK
             @"busplash", @"gdtsplash", @"kssplash", @"sigsplash",
             @"mtgsplash", @"hwsplash", @"misplash", @"panglesplash",
+            // 腾讯系
+            @"tadsplash", @"tadlaunch", @"qnlaunch", @"tvklaunch", @"qqlivead",
+            // 酷狗系
+            @"kugouad", @"kglaunch",
         ];
     });
     return keywords;
@@ -194,12 +251,11 @@ static NSArray<NSString *> *SADExcludedKeywords(void) {
     static NSArray<NSString *> *keywords;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        // 这些词出现在类名里时，一般不是「开屏广告界面」，误杀会弄坏 App。
         keywords = @[
             @"config", @"manager", @"request", @"loader", @"cache",
             @"report", @"tracker", @"helper", @"adapter", @"delegate",
             @"model", @"monitor", @"setting", @"preference", @"network",
-            @"parser", @"service", @"controllerconfig",
+            @"parser", @"service",
         ];
     });
     return keywords;
@@ -228,7 +284,6 @@ static BOOL SADNameMatchesUncached(NSString *className, SADConfig *config) {
         }
     }
 
-    // 兜底：同时出现 splash 与 ad 的类名。
     if ([normalized containsString:@"splash"] && [normalized containsString:@"ad"]) {
         return YES;
     }
@@ -240,7 +295,6 @@ static BOOL SADNameMatches(NSString *className, SADConfig *config) {
     if (className.length == 0) {
         return NO;
     }
-    // 扫描时每一帧都会查很多次，按类名缓存结果（类名重复度极高）。
     if (![NSThread isMainThread]) {
         return SADNameMatchesUncached(className, config);
     }
@@ -285,9 +339,6 @@ static BOOL SADIsSkipText(NSString *text) {
         return YES;
     }
     if ([lowercase containsString:@"skip"]) {
-        return YES;
-    }
-    if ([lowercase containsString:@"跳过此广告"] || [lowercase containsString:@"跳过广告"]) {
         return YES;
     }
     return NO;
@@ -337,6 +388,19 @@ static NSString *SADTextFromControl(UIControl *control) {
     return buffer;
 }
 
+static UIControl *SADEnclosingControl(UIView *view) {
+    UIView *current = view;
+    NSInteger depth = 0;
+    while (current && depth < 8) {
+        if ([current isKindOfClass:[UIControl class]]) {
+            return (UIControl *)current;
+        }
+        current = current.superview;
+        depth++;
+    }
+    return nil;
+}
+
 static BOOL SADContainsSkipControl(UIView *view, NSInteger depth) {
     if (depth > 5) {
         return NO;
@@ -366,6 +430,56 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
     return NO;
 }
 
+/// 有些 App 的「跳过」是 UILabel + UITapGestureRecognizer，只能直接触发手势的 target/action。
+static BOOL SADTriggerTapGesture(UIView *view) {
+    NSArray<UIGestureRecognizer *> *gestures = view.gestureRecognizers;
+    if (gestures.count == 0 && view.superview != nil) {
+        gestures = view.superview.gestureRecognizers;
+    }
+
+    for (UIGestureRecognizer *gesture in gestures) {
+        if (![gesture isKindOfClass:[UITapGestureRecognizer class]]) {
+            continue;
+        }
+        @try {
+            NSArray *targets = [gesture valueForKey:@"_targets"];
+            for (id container in targets) {
+                id target = [container valueForKey:@"_target"];
+                NSString *actionName = [container valueForKey:@"_action"];
+                SEL action = NSSelectorFromString(actionName);
+                if (target != nil && action != NULL && [target respondsToSelector:action]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                    [target performSelector:action withObject:gesture];
+#pragma clang diagnostic pop
+                    return YES;
+                }
+            }
+        } @catch (NSException *exception) {
+            (void)exception;
+        }
+    }
+    return NO;
+}
+
+static void SADPauseVideoLayer(UIView *view) {
+    CALayer *layer = view.layer;
+    if (layer == nil || ![NSStringFromClass(layer.class) containsString:@"AVPlayerLayer"]) {
+        return;
+    }
+    @try {
+        id player = [layer valueForKey:@"player"];
+        if (player != nil && [player respondsToSelector:@selector(pause)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [player performSelector:@selector(pause)];
+#pragma clang diagnostic pop
+        }
+    } @catch (NSException *exception) {
+        (void)exception;
+    }
+}
+
 #pragma mark - SADCore
 
 @interface SADCore ()
@@ -374,8 +488,11 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
 @property (nonatomic, strong, nullable) NSTimer *timer;
 @property (nonatomic, assign) CFTimeInterval deadline;
 @property (nonatomic, assign) CFTimeInterval startedAt;
+@property (nonatomic, assign) CFTimeInterval nextSnapshot;
 @property (nonatomic, assign) NSInteger clickCount;
-@property (nonatomic, strong) NSHashTable<UIControl *> *clickedControls;
+@property (nonatomic, assign) NSInteger tickSkipCandidates;
+@property (nonatomic, assign) BOOL adDetected;
+@property (nonatomic, strong) NSHashTable<UIView *> *clickedControls;
 @property (nonatomic, strong) NSHashTable<UIView *> *maskedViews;
 
 - (void)stopMonitoring;
@@ -410,7 +527,6 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
     if (bundleIdentifier.length == 0) {
         return NO;
     }
-    // 系统 App 不做处理，避免影响 SpringBoard / 设置等。
     if ([bundleIdentifier hasPrefix:@"com.apple."]) {
         return NO;
     }
@@ -434,6 +550,12 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
 }
 
 + (void)install {
+    SADProcessStartTime = CACurrentMediaTime();
+    if ([SADCore shared].config.logToFile) {
+        SADClearDiag();
+        SADDiag(@"process %@", [NSBundle mainBundle].bundleIdentifier);
+    }
+
     NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
 
     [center addObserverForName:UIApplicationDidFinishLaunchingNotification
@@ -449,13 +571,9 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
                          queue:[NSOperationQueue mainQueue]
                     usingBlock:^(__unused NSNotification *note) {
                         SADCore *core = [SADCore shared];
-                        if (!core.config.hotStart) {
+                        if (!core.config.hotStart || core.timer != nil) {
                             return;
                         }
-                        if (core.timer != nil) {
-                            return;
-                        }
-                        // 热启动的开屏广告通常只会停留几秒。
                         [core beginMonitoringWithWindow:MIN(6.0, core.config.launchWindow)
                                                  reason:@"foreground"];
                     }];
@@ -464,7 +582,9 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
                         object:nil
                          queue:[NSOperationQueue mainQueue]
                     usingBlock:^(__unused NSNotification *note) {
-                        [[SADCore shared] stopMonitoring];
+                        SADCore *core = [SADCore shared];
+                        [core stopMonitoring];
+                        SADFlushDiag();
                     }];
 }
 
@@ -490,18 +610,21 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
     }
 
     self.clickCount = 0;
+    self.tickSkipCandidates = 0;
+    self.adDetected = NO;
+    self.nextSnapshot = 0.8;
     [self.clickedControls removeAllObjects];
     [self.maskedViews removeAllObjects];
 
-    self.timer = [NSTimer timerWithTimeInterval:0.12
+    self.timer = [NSTimer timerWithTimeInterval:0.2
                                          target:self
                                        selector:@selector(handleTick)
                                        userInfo:nil
                                         repeats:YES];
-    self.timer.tolerance = 0.03;
+    self.timer.tolerance = 0.05;
     [[NSRunLoop mainRunLoop] addTimer:self.timer forMode:NSRunLoopCommonModes];
 
-    SADLog(@"开始监听 (%@, %.0f 秒)", reason, window);
+    SADDiag(@"monitor start (%@, %.0fs)", reason, window);
 }
 
 - (void)stopMonitoring {
@@ -510,7 +633,8 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
     }
     [self.timer invalidate];
     self.timer = nil;
-    SADLog(@"停止监听");
+    SADDiag(@"monitor stop clicks=%ld ad=%d", (long)self.clickCount, self.adDetected);
+    SADFlushDiag();
 }
 
 - (void)handleTick {
@@ -522,10 +646,23 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
         [self stopMonitoring];
         return;
     }
+
+    self.tickSkipCandidates = 0;
     @try {
         [self scanVisibleWindows];
     } @catch (NSException *exception) {
-        SADLog(@"扫描异常: %@", exception.reason);
+        SADDiag(@"scan exception %@", exception.reason);
+    }
+
+    CFTimeInterval elapsed = CACurrentMediaTime() - self.startedAt;
+    if (elapsed >= self.nextSnapshot) {
+        SADDiag(@"t=%.1f top=%@ windows=%lu skip=%ld ad=%d",
+                elapsed,
+                [self topViewControllerName],
+                (unsigned long)[UIApplication sharedApplication].windows.count,
+                (long)self.tickSkipCandidates,
+                self.adDetected);
+        self.nextSnapshot = elapsed + 2.0;
     }
 }
 
@@ -537,7 +674,9 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
         return;
     }
 
-    NSInteger budget = 1500;
+    CFTimeInterval elapsed = CACurrentMediaTime() - self.startedAt;
+    NSInteger budget = elapsed < 4.0 ? 2200 : 900;
+
     for (UIWindow *window in application.windows) {
         if (budget <= 0) {
             break;
@@ -545,7 +684,6 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
         if (window.hidden || window.alpha < 0.02) {
             continue;
         }
-        // 键盘等超高层级窗口不扫；普通层级、状态栏层级、Alert 层级都扫。
         if (window.windowLevel > UIWindowLevelAlert) {
             continue;
         }
@@ -553,6 +691,27 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
         [self scanTopViewControllerInWindow:window];
         [self scanViewTree:window budget:&budget];
     }
+}
+
+- (NSString *)topViewControllerName {
+    UIWindow *keyWindow = nil;
+    for (UIWindow *window in [UIApplication sharedApplication].windows) {
+        if (window.isKeyWindow) {
+            keyWindow = window;
+            break;
+        }
+    }
+    if (keyWindow == nil) {
+        keyWindow = [UIApplication sharedApplication].windows.firstObject;
+    }
+
+    UIViewController *controller = keyWindow.rootViewController;
+    NSInteger depth = 0;
+    while (controller.presentedViewController != nil && depth < 6) {
+        controller = controller.presentedViewController;
+        depth++;
+    }
+    return controller != nil ? NSStringFromClass(controller.class) : @"(none)";
 }
 
 - (void)scanTopViewControllerInWindow:(UIWindow *)window {
@@ -591,8 +750,12 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
 }
 
 - (void)handleCandidateView:(UIView *)view {
-    if (self.config.autoSkip && [view isKindOfClass:[UIControl class]]) {
-        [self considerControl:(UIControl *)view];
+    if (self.config.autoSkip) {
+        if ([view isKindOfClass:[UIControl class]]) {
+            [self considerControl:(UIControl *)view];
+        } else {
+            [self considerAccessibilityView:view];
+        }
     }
     if (self.config.maskAdContent) {
         [self maskAdContainerIfNeeded:view];
@@ -615,6 +778,8 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
         return;
     }
 
+    self.tickSkipCandidates += 1;
+
     BOOL insideAdContainer = SADViewIsInsideAdContainer(control, self.config);
     BOOL inSkipZone = [self isControlInSkipZone:control];
     BOOL earlyStage = (CACurrentMediaTime() - self.startedAt) < 8.0;
@@ -624,18 +789,70 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
         return;
     }
 
+    if (insideAdContainer) {
+        [SADCore noteAdDetected];
+    }
+
     [self.clickedControls addObject:control];
     self.clickCount += 1;
 
-    NSString *preview = text.length > 40 ? [text substringToIndex:40] : text;
-    SADLog(@"点击跳过: %@ (%@)", preview, NSStringFromClass(control.class));
+    SADDiag(@"click %@ text=%@ ad=%d",
+            NSStringFromClass(control.class),
+            text.length > 24 ? [text substringToIndex:24] : text,
+            insideAdContainer);
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [control sendActionsForControlEvents:UIControlEventTouchUpInside];
     });
 }
 
-/// 「跳过」通常位于屏幕右上角。
+- (void)considerAccessibilityView:(UIView *)view {
+    if (self.clickCount >= 3) {
+        return;
+    }
+
+    // UILabel + 手势的「跳过」：直接触发手势的 target/action。
+    if ([view isKindOfClass:[UILabel class]] && SADEnclosingControl(view) == nil) {
+        UILabel *label = (UILabel *)view;
+        if (SADIsSkipText(label.text) && ![self.clickedControls containsObject:view]) {
+            self.tickSkipCandidates += 1;
+            [self.clickedControls addObject:view];
+            self.clickCount += 1;
+            SADDiag(@"gesture tap %@ text=%@", NSStringFromClass(view.class), label.text);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                SADTriggerTapGesture(view);
+            });
+            return;
+        }
+    }
+
+    if (view.accessibilityLabel.length == 0 || view.isAccessibilityElement == NO) {
+        return;
+    }
+    if (!SADIsSkipText(view.accessibilityLabel)) {
+        return;
+    }
+    if ([self.clickedControls containsObject:view]) {
+        return;
+    }
+    if (SADEnclosingControl(view) != nil) {
+        return;
+    }
+
+    self.tickSkipCandidates += 1;
+    [self.clickedControls addObject:view];
+    self.clickCount += 1;
+
+    SADDiag(@"accessibilityActivate %@ label=%@",
+            NSStringFromClass(view.class), view.accessibilityLabel);
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([view respondsToSelector:@selector(accessibilityActivate)]) {
+            [view accessibilityActivate];
+        }
+    });
+}
+
 - (BOOL)isControlInSkipZone:(UIControl *)control {
     UIWindow *window = control.window;
     if (window == nil) {
@@ -662,11 +879,14 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
         return;
     }
     [self.maskedViews addObject:view];
+    [SADCore noteAdDetected];
 
     CGFloat totalArea = view.bounds.size.width * view.bounds.size.height;
     if (totalArea <= 0) {
         return;
     }
+
+    SADDiag(@"mask %@", NSStringFromClass(view.class));
 
     for (UIView *subview in view.subviews) {
         CGFloat area = subview.bounds.size.width * subview.bounds.size.height;
@@ -676,12 +896,11 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
         if ([subview isKindOfClass:[UIControl class]]) {
             continue;
         }
-        // 不要把带「跳过」按钮的容器一起隐藏掉。
         if (SADContainsSkipControl(subview, 0)) {
             continue;
         }
+        SADPauseVideoLayer(subview);
         subview.alpha = 0.0;
-        SADLog(@"遮挡广告画面: %@", NSStringFromClass(subview.class));
     }
 }
 
@@ -706,24 +925,45 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
     if (SADNameIsExcluded(className)) {
         return NO;
     }
+    [SADCore noteAdDetected];
     return YES;
+}
+
++ (BOOL)shouldBlockPresentation:(UIViewController *)viewController {
+    if (viewController == nil) {
+        return NO;
+    }
+    if (![SADCore shouldBlockAdJump]) {
+        return NO;
+    }
+    NSString *className = NSStringFromClass(viewController.class);
+    return [className containsString:@"SFSafariViewController"] ||
+           [className containsString:@"SKStoreProductViewController"] ||
+           [className containsString:@"ASWebAuthenticationSession"];
 }
 
 + (void)dismissBlockedViewController:(UIViewController *)viewController {
     if (viewController == nil) {
         return;
     }
-    dispatch_async(dispatch_get_main_queue(), ^{
+    [SADCore noteAdDetected];
+
+    // 先让 App 自己的跳过逻辑有机会跑；0.6 秒后还在就强制关掉。
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
         if (viewController.isBeingDismissed || viewController.isBeingPresented) {
             return;
         }
 
         UIWindow *window = viewController.viewIfLoaded.window;
-        if (window != nil && window.rootViewController == viewController) {
+        if (window == nil) {
+            return;
+        }
+        if (window.rootViewController == viewController) {
             return;
         }
 
-        SADLog(@"关闭开屏广告控制器: %@", NSStringFromClass(viewController.class));
+        SADDiag(@"dismiss %@", NSStringFromClass(viewController.class));
 
         UINavigationController *navigationController = viewController.navigationController;
         if (navigationController != nil &&
@@ -737,6 +977,33 @@ static BOOL SADViewIsInsideAdContainer(UIView *view, SADConfig *config) {
             [viewController dismissViewControllerAnimated:NO completion:nil];
         }
     });
+}
+
+#pragma mark 行为拦截
+
++ (BOOL)shouldBlockMotion {
+    SADCore *core = [SADCore shared];
+    if (!core.config.enabled || !core.config.blockShake) {
+        return NO;
+    }
+    return core.timer != nil;
+}
+
++ (BOOL)shouldBlockAdJump {
+    SADCore *core = [SADCore shared];
+    if (!core.config.enabled || !core.config.blockAdJump) {
+        return NO;
+    }
+    return core.adDetected && core.timer != nil;
+}
+
++ (void)noteAdDetected {
+    SADCore *core = [SADCore shared];
+    if (core.adDetected) {
+        return;
+    }
+    core.adDetected = YES;
+    SADDiag(@"ad context");
 }
 
 @end
